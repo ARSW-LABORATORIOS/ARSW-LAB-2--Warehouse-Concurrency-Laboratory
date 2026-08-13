@@ -103,9 +103,9 @@ The final result depends on scheduling because the threads can execute
 their read and write operations in different orders. If two robots read
 the same value before one of them updates it, one increment can be lost.
 Also if we make another execution the threads can run in another order
-and give a different result — the code itself never changes, only the
-order in which the scheduler interleaves the two threads changes, which
-is outside our control.
+and give a different result. The code doesn't change between runs, only
+the order the scheduler picks to run the threads, and we don't control
+that order.
 
 ## 4. System invariants
 
@@ -143,33 +143,33 @@ I6: When the simulation is complete, there must be no pending parcels.
 
 **Why `synchronized` methods instead of a private lock object?**
 
-The course material (Semana 2, "Solución 2: bloque sincronizado") shows a private `Object lock` as the safer default, since a `synchronized` method exposes the object itself (`this`) as the monitor — the antipattern flagged as "exponer el lock". We kept `synchronized` methods here because none of these 4 classes are exposed as a public API outside the project: only `WarehouseRobot` and `WarehouseSimulation`, inside the same trusted codebase, hold references to them. A private lock would add no extra safety in this specific case, but it would be the correct default if these classes were ever exposed externally.
+In class we saw that a private `Object lock` is usually the safer option, because putting `synchronized` directly on a method uses the object itself (`this`) as the monitor, and that's the "exponer el lock" antipattern the slides warn about. We thought about it but decided it doesn't really apply here: `PackageQueue`, `DeliveryRegistry`, `WarehouseStatistics` and `SimulationControl` are internal classes, nobody outside `WarehouseRobot`/`WarehouseSimulation` ever gets a reference to them, so there's no risk of someone accidentally locking on our object from outside. If these classes were ever made public we'd switch to a private lock, but for this lab `synchronized` on the methods does the same job with less code.
 
 **Why not `AtomicInteger`/`AtomicLong` for `WarehouseStatistics`?**
 
-The course material's decision map (Semana 2, "Elegir mecanismo") says atomic types are appropriate only for a single simple variable — and explicitly warns against them "cuando hay una invariante entre varias variables". `WarehouseStatistics` has exactly that case: `processedParcels` and `totalProcessingMillis` must be updated together to stay consistent with each other, so a `synchronized` block around both was the correct choice over two independent `AtomicInteger`/`AtomicLong` fields (which would each be individually atomic, but not atomic *together*).
+We considered it since `processedParcels` is just a counter, but `WarehouseStatistics` actually has two fields that need to stay in sync with each other (`processedParcels` and `totalProcessingMillis`). Two separate `AtomicInteger`/`AtomicLong` would each be safe on their own, but nothing stops one thread from updating one field and being interrupted before updating the other — so the two numbers could drift apart. That's exactly the case the course material says atomics aren't enough for ("varias variables relacionadas"), so we went with `synchronized` around both updates instead.
 
 **What would happen to throughput if the protected region were unnecessarily large?**
 
-If the protected region is unnecessarily large — for example a single global lock shared by all 4 classes — more robots have to wait for the same lock even when they could execute independently. A robot registering a delivery would block another robot that only wants to take a new parcel, even though `PackageQueue` and `DeliveryRegistry` protect independent invariants. This reduces concurrency and can decrease the throughput of the simulation without adding any extra correctness.
+If we had used one single lock for all 4 classes, robots would end up waiting on each other for no reason — a robot registering a delivery would block another robot that's just trying to take a new parcel, even though those two operations don't touch the same data. Keeping each class with its own lock means robots only wait when they actually compete for the same thing.
 
 ## 6. Thread completion and pause/resume coordination
 
 **Why is `Thread.sleep(...)` not a valid substitute for `join()` when waiting for a worker to finish?**
 
-`Thread.sleep(ms)` only guarantees that at least `ms` milliseconds have passed — it says nothing about whether the target thread actually finished its work. Since parcel processing time varies (randomized jitter, different robot/parcel counts), any fixed sleep duration is either too short (report printed while robots are still running, as in the starter) or wastefully too long. `join()` blocks the calling thread exactly until the target thread terminates, regardless of how long that takes, which is the only way to guarantee the final report is printed after all robots are truly done. `WarehouseMain` now calls `simulation.awaitCompletion()`, which loops `robot.join()` over every `WarehouseRobot`, instead of `Thread.sleep(60)`.
+`Thread.sleep(ms)` just waits `ms` milliseconds and then keeps going, it doesn't actually know if the robots are done or not. That's the bug in the starter: it sleeps 60ms and prints the report, but 60ms might not be enough if there are more robots/parcels, so the report comes out wrong. `join()` is different because it actually blocks until that specific thread finishes, no matter how long it takes. So we changed `WarehouseMain` to call `simulation.awaitCompletion()` (which does `robot.join()` for every robot) instead of `Thread.sleep(60)`, and now the report only prints once everyone is actually done.
 
 **Pause/resume design**
 
-`SimulationControl` replaced the busy-wait (`while (paused) { Thread.onSpinWait(); }`) with a monitor:
+We replaced the busy-wait in `SimulationControl` (`while (paused) { Thread.onSpinWait(); }`) with `wait()`/`notifyAll()`:
 
-- `pause()`, `resume()`, `awaitIfPaused()` and `isPaused()` are all `synchronized` on the same object monitor, since they all read/write the single shared `paused` flag.
-- `awaitIfPaused()` uses `while (paused) { wait(); }` — a `while`, not an `if`, so a robot that wakes up (spuriously or otherwise) re-checks the condition before proceeding, as required for correct monitor usage.
-- `resume()` sets `paused = false` and calls `notifyAll()` once, waking every robot blocked in `wait()` in a single coordinated action, instead of polling.
+- `pause()`, `resume()`, `awaitIfPaused()` and `isPaused()` are all `synchronized`, because they all touch the same `paused` variable and we need only one robot messing with it at a time.
+- `awaitIfPaused()` uses `while (paused) { wait(); }` instead of `if`, because a thread can wake up from `wait()` without anyone actually calling `resume()` (spurious wakeup), so it needs to check the condition again before continuing.
+- `resume()` sets `paused = false` and calls `notifyAll()` so every robot that was sleeping wakes up at once, instead of us having to wake them one by one.
 
 **Consistent paused snapshot — how do you know the snapshot represents a consistent state rather than workers that are still changing shared data?**
 
-Once `pause()` is called, a robot that is mid-iteration finishes it completely — it processes the parcel it already took, calls `deliveryRegistry.register(...)`, and calls `statistics.recordProcessed(...)` — and only then, at the top of the next loop, does it call `awaitIfPaused()` and block. Because `register()` and `recordProcessed()` are themselves synchronized (sections above), any thread reading a snapshot while the simulation is paused can only observe the state either fully before or fully after one of these calls — never mid-update. So even though `pause()` can be called at an arbitrary instant, the snapshot taken shortly after is guaranteed to reflect a set of *complete* robot iterations, not a partially-written one.
+When `pause()` gets called, a robot that's already in the middle of an iteration doesn't stop right away — it finishes processing the parcel it has, registers the delivery, updates the statistics, and only after that does it check `awaitIfPaused()` and go to sleep. Since `register()` and `recordProcessed()` are synchronized, whoever reads the snapshot while paused can only see the state before or after one of those calls finished, never halfway through. So the paused snapshot is always a picture of robots that finished their current step, not one caught mid-write.
 
 ## 7. Verification results
 
@@ -191,26 +191,26 @@ Run these **after** all three branches (`feature/vera-statistics`, `feature/nico
 ## 8. Quality-attribute analysis
 
 ### Decision analysis (main synchronization decision)
-- **What problem were you solving?** Multiple `WarehouseRobot` threads reading and writing the same mutable state (`PackageQueue`, `DeliveryRegistry`, `WarehouseStatistics`, `SimulationControl`) without coordination, producing lost updates, duplicate/missing parcels, and CPU-wasting busy-waiting.
-- **What invariant had to be preserved?** I1 through I6 (section 4) — in particular, that compound read-modify-write operations (`nextPosition++`, `processedParcels++`, checking-then-removing from the queue) are observed as atomic by every other thread.
-- **What alternatives did you consider?** A single global lock (rejected — see throughput question above), `AtomicInteger`/`AtomicLong` (rejected for `WarehouseStatistics` — see above), a private lock object per class (considered, not necessary — see above).
-- **Why did you choose the final mechanism?** `synchronized` methods give each class its own independent monitor, matching the "Elegir mecanismo" decision map from the course material: multiple related variables → lock/synchronized around the invariant. `wait()`/`notifyAll()` was the required replacement for busy-waiting in `SimulationControl`.
-- **What are its consequences?** See section 5's throughput answer and the Risks section of the ADR.
+- **What problem were you solving?** All the `WarehouseRobot` threads were reading and writing the same shared objects (`PackageQueue`, `DeliveryRegistry`, `WarehouseStatistics`, `SimulationControl`) with no coordination at all, so we were getting lost updates, duplicated/missing parcels, and robots burning CPU while paused instead of actually waiting.
+- **What invariant had to be preserved?** Basically I1 to I6 from section 4 — things like a parcel only counting once, positions not repeating, and the processed counter actually matching how many deliveries happened.
+- **What alternatives did you consider?** A single lock for everything (bad idea, kills throughput for no reason), `AtomicInteger`/`AtomicLong` for the statistics (doesn't work because two fields need to update together), and a private lock object instead of `synchronized` methods (not necessary since nothing external touches these classes).
+- **Why did you choose the final mechanism?** `synchronized` on each class separately felt like the right level — small enough to not block unrelated work, big enough to actually cover the invariant. For the pause/resume part specifically we needed `wait()`/`notifyAll()` because that's the only way to make a thread sleep and wake back up without polling.
+- **What are its consequences?** See the throughput answer in section 5 and the Risks part of the ADR.
 
 ### Correctness / reliability
-Each class now protects its own compound operations atomically, eliminating the specific races captured in section 2's evidence. Verified empirically via `RaceConditionProbe` (section 7).
+Every class protects its own read-modify-write operations now, so the specific races we captured in section 2 shouldn't happen anymore. We're checking this with `RaceConditionProbe` (results in section 7).
 
 ### Performance / throughput
-Synchronizing per-class instead of globally preserves parallelism between independent operations (e.g., one robot registering a delivery does not block another robot taking a new parcel). The critical sections themselves are short (a few field reads/writes), so lock contention is minimal even with many robots.
+Because we locked each class separately instead of using one big lock, robots can still work in parallel as long as they're not touching the exact same object. The locked sections themselves are tiny (just a few field updates), so we don't expect robots to spend much time waiting on each other even with more robots running.
 
 ### Maintainability
-Each shared class encapsulates its own synchronization — a developer reading `WarehouseStatistics` in isolation can reason about its thread-safety without needing to understand `PackageQueue` or `DeliveryRegistry`. This mirrors the course's guidance to protect the invariant at the smallest scope that owns it.
+Each class handles its own synchronization, so if someone needs to touch `WarehouseStatistics` later they don't have to understand how `PackageQueue` or `DeliveryRegistry` work to know it's safe.
 
 ### Architectural boundary — three independent JVM instances behind a load balancer
 Would `synchronized` blocks still protect the business invariant across all three instances? Why or why not?
 
-No. `synchronized` protects a monitor that lives in a single JVM's memory. With 3 independent JVM instances, each would have its own copy of `PackageQueue`, `DeliveryRegistry`, etc. — three separate `nextPosition` counters, three separate `paused` flags. A lock held in instance A is invisible to instances B and C, so two robots on different instances could still be assigned the same delivery position or read a stale `pending` list. The invariants would break again, just at a coarser scale.
+No, it wouldn't work. `synchronized` only protects memory inside one JVM — if we had 3 separate instances, each one would have its own copy of `nextPosition`, `paused`, etc. A lock in instance A has no idea what's happening in instance B or C, so two robots running on different instances could still grab the same delivery position. Basically the same problem comes back, just between instances instead of between threads.
 
 What type of architectural mechanism would then be required?
 
-A form of distributed coordination: a shared data store that is the single source of truth for the mutable state (e.g. a relational database with transactions/constraints, or a distributed lock service), or a message queue with a single consumer per partition so that only one instance ever processes a given parcel. The key shift is that consistency can no longer be guaranteed purely in-process — it has to be delegated to a component all three instances agree to coordinate through.
+We'd need something outside any single JVM to be the actual source of truth — like a database with transactions/constraints, a distributed lock, or a queue that only lets one instance process a given parcel at a time. The point is that `synchronized` can't reach across machines, so the coordination has to move somewhere all three instances can see.

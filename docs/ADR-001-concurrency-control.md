@@ -2,24 +2,24 @@
 
 ## Context
 
-The warehouse simulation runs N `WarehouseRobot` threads concurrently against 4 shared mutable objects (`PackageQueue`, `DeliveryRegistry`, `WarehouseStatistics`, `SimulationControl`). The starter implementation leaves every read-modify-write operation unsynchronized, producing check-then-act races (`PackageQueue.takeNext()`), lost-position races (`DeliveryRegistry.register()`), lost-update races (`WarehouseStatistics.recordProcessed()`), and CPU-wasting busy-waiting for pause/resume (`SimulationControl.awaitIfPaused()`).
+The simulation has a bunch of `WarehouseRobot` threads running at the same time, all sharing 4 objects: `PackageQueue`, `DeliveryRegistry`, `WarehouseStatistics` and `SimulationControl`. In the starter code none of these are synchronized, so we were getting the classic bugs: `PackageQueue.takeNext()` could hand out the same parcel twice, `DeliveryRegistry.register()` could assign the same position to two robots, `WarehouseStatistics.recordProcessed()` could lose an increment, and `SimulationControl` was just spinning in a loop checking a flag instead of actually waiting.
 
 ## Decision
 
-[COMPLETAR] — resumir en 3-4 líneas: se usó `synchronized` a nivel de método sobre cada clase compartida individualmente (no un candado global), con la región crítica limitada a la operación de lectura+escritura que causa la carrera en cada caso; y se reemplazó la espera activa de `SimulationControl` por un monitor con `wait()`/`notifyAll()`.
+We synchronized each of the 4 classes on its own, not with one shared lock for everything. Each class got `synchronized` on the methods that touch its own state, keeping the locked part as small as we could (basically just the read+write that causes the race). For `SimulationControl` specifically we swapped the busy-wait loop for `wait()`/`notifyAll()`, since that's the only way in Java to actually sleep a thread and wake it back up instead of polling.
 
 ## Alternatives considered
 
-- **One global lock for all 4 shared objects** — rejected: serializes unrelated operations (e.g. taking a parcel would block on delivery registration), unnecessarily hurting throughput.
-- **Private lock object + `synchronized` block** (class material, "Solución 2: bloque sincronizado") — instead of `synchronized` on the public methods (which uses the object itself, `this`, as the monitor), declare `private final Object lock = new Object();` and wrap only the critical section in `synchronized (lock) { ... }`. This avoids the "exposing the lock" antipattern flagged in class: external code holding a reference to the object could otherwise `synchronized (thatObject)` and interfere with unrelated code. Not adopted here because `PackageQueue`, `DeliveryRegistry`, and `WarehouseStatistics` are internal domain objects only ever referenced by `WarehouseRobot`/`WarehouseSimulation` within the same trusted codebase — nothing external ever holds a reference to lock on. `synchronized` methods ("Solución 1") give the same mutual-exclusion guarantee with less code. If these classes were ever exposed as a public API, switching to a private lock would be the safer default.
-- **`java.util.concurrent` primitives** (e.g. `ConcurrentLinkedQueue`, `AtomicInteger`, `ReentrantLock`/`Condition`) — [COMPLETAR: ¿lo consideraron y por qué se quedaron con `synchronized` + monitores intrínsecos en vez de esto? Mencionar que el "Desafío opcional" del enunciado explora justamente esta alternativa con `BlockingQueue`/`Lock`/`Condition`].
-- **Busy-waiting kept as-is** — rejected: wastes CPU cycles while paused, explicitly disallowed by the assignment.
+- **One global lock for everything** — rejected, it would serialize operations that have nothing to do with each other (e.g. taking a parcel would block on delivery registration for no reason).
+- **Private lock object instead of `synchronized` methods** (this is "Solución 2" from the class slides) — the professor showed this as usually the safer option, since putting `synchronized` on a method uses the object itself as the lock, and that's flagged as an antipattern ("exponer el lock") if the object is ever exposed to code outside. We looked at it but didn't use it because none of these 4 classes are ever touched by anything outside `WarehouseRobot`/`WarehouseSimulation`, so there's nothing external that could accidentally lock on them.
+- **`AtomicInteger`/`AtomicLong`** — works fine for a single counter, but `WarehouseStatistics` has two fields (`processedParcels` and `totalProcessingMillis`) that need to update together, so two separate atomics wouldn't guarantee they stay in sync with each other.
+- **Keeping the busy-wait as-is** — not an option, it wastes CPU the whole time the simulation is paused and the assignment explicitly asks to get rid of it.
 
 ## Quality attributes affected
 
-- **Correctness/reliability**: eliminates the race conditions verified by `RaceConditionProbe` (target: 0/100 anomalous runs).
-- **Performance/throughput**: [COMPLETAR — cuantificar si es posible, o al menos razonar: sincronizar por clase en vez de globalmente mantiene el paralelismo entre operaciones independientes].
-- **Maintainability**: [COMPLETAR — cada clase encapsula su propia sincronización, así que el comportamiento concurrente es local y fácil de razonar por separado].
+- **Correctness/reliability**: gets rid of the race conditions we found (see `RaceConditionProbe` results in `docs/REPORT.md`, target is 0/100 anomalous runs).
+- **Performance/throughput**: locking each class separately instead of everything together means robots can still work in parallel as long as they're touching different shared objects.
+- **Maintainability**: each class handles its own locking, so you don't need to understand all 4 classes at once to know if one of them is thread-safe.
 
 ## Evidence
 
@@ -27,10 +27,9 @@ See `docs/REPORT.md` sections 2 (Observed anomalies) and 7 (Verification results
 
 ## Consequences
 
-[COMPLETAR] — ej.: todas las operaciones sobre un mismo objeto compartido quedan serializadas entre sí (aceptable, porque son operaciones cortas), pero el sistema sigue permitiendo paralelismo real entre robots que tocan objetos distintos en el mismo instante.
+Operations on the same shared object now run one at a time instead of concurrently, which is fine since each of those operations is short. Robots working on different objects at the same instant can still run fully in parallel.
 
 ## Risks
 
-- If a future change adds a new method that reads/writes the same fields without going through the synchronized methods, the invariant breaks silently (no compiler error).
-- `wait()`/`notifyAll()` on `SimulationControl` requires callers to always hold the object's monitor; calling `awaitIfPaused()`/`pause()`/`resume()` from code that doesn't go through the synchronized methods would reintroduce the race.
-- [COMPLETAR — algún otro riesgo que identifiquen específico de su implementación].
+- If someone adds a new method later that touches these same fields without going through the synchronized methods, the protection breaks and the compiler won't warn about it.
+- `wait()`/`notifyAll()` in `SimulationControl` only works correctly if every caller goes through the synchronized methods — calling the internal logic from somewhere that skips the monitor would bring back the race.
