@@ -2,34 +2,61 @@
 
 ## Context
 
-The simulation has a bunch of `WarehouseRobot` threads running at the same time, all sharing 4 objects: `PackageQueue`, `DeliveryRegistry`, `WarehouseStatistics` and `SimulationControl`. In the starter code none of these are synchronized, so we were getting the classic bugs: `PackageQueue.takeNext()` could hand out the same parcel twice, `DeliveryRegistry.register()` could assign the same position to two robots, `WarehouseStatistics.recordProcessed()` could lose an increment, and `SimulationControl` was just spinning in a loop checking a flag instead of actually waiting.
+In the warehouse simulator, several robots (Java threads) share four objects: `PackageQueue`, `DeliveryRegistry`, `WarehouseStatistics` and `SimulationControl`. In the initial code we have no protection over these objects, which generates race conditions, so two robots can take the same package, also receive the same delivery position, lose counter increments, or burn CPU in active waiting. The task is to fix those problems with the minimum necessary synchronization, without removing concurrency or using a global lock.
 
 ## Decision
 
-We synchronized each of the 4 classes on its own, not with one shared lock for everything. Each class got `synchronized` on the methods that touch its own state, keeping the locked part as small as we could (basically just the read+write that causes the race). For `SimulationControl` specifically we swapped the busy-wait loop for `wait()`/`notifyAll()`, since that's the only way in Java to actually sleep a thread and wake it back up instead of polling.
+### Nicolás — PackageQueue and DeliveryRegistry
+
+I used `synchronized` at method level in each class one by one. In `PackageQueue`, `takeNext()` and `pendingCount()` were synchronized so the check, the read and the remove are a single atomic operation. In `DeliveryRegistry`, `register()` and `snapshot()` were synchronized so the read of `nextPosition`, the increment and the `add` cannot be interrupted by another robot. Each class has its own assigned monitor (`this`), independent from each other.
+
+### Vera — WarehouseStatistics
+
+*(borrador — Vera, ajusta si quieres cambiar algo)* I synchronized `recordProcessed()`, `processedParcels()` and `totalProcessingMillis()` so the counter and the total time always update together. Before, the method read the current value, waited, and wrote the new one in separate steps, so two robots could read the same value and one increment got lost. With `synchronized` only one robot can be inside `recordProcessed()` at a time, so that can't happen anymore.
+
+### Mabel — SimulationControl and WarehouseMain
+
+I replaced the busy-wait in `SimulationControl` (`while (paused) { Thread.onSpinWait(); }`) with a monitor: `pause()`, `resume()`, `awaitIfPaused()` and `isPaused()` are all `synchronized` on the same object, `awaitIfPaused()` calls `wait()` instead of spinning, and `resume()` calls `notifyAll()` to wake every waiting robot at once. Separately, `WarehouseMain` now calls `simulation.awaitCompletion()` (which does `robot.join()` on every robot) instead of `Thread.sleep(60)`, so the final report only prints after all robots are actually done.
 
 ## Alternatives considered
 
-- **One global lock for everything** — rejected, it would serialize operations that have nothing to do with each other (e.g. taking a parcel would block on delivery registration for no reason).
-- **Private lock object instead of `synchronized` methods** (this is "Solución 2" from the class slides) — the professor showed this as usually the safer option, since putting `synchronized` on a method uses the object itself as the lock, and that's flagged as an antipattern ("exponer el lock") if the object is ever exposed to code outside. We looked at it but didn't use it because none of these 4 classes are ever touched by anything outside `WarehouseRobot`/`WarehouseSimulation`, so there's nothing external that could accidentally lock on them.
-- **`AtomicInteger`/`AtomicLong`** — works fine for a single counter, but `WarehouseStatistics` has two fields (`processedParcels` and `totalProcessingMillis`) that need to update together, so two separate atomics wouldn't guarantee they stay in sync with each other.
-- **Keeping the busy-wait as-is** — not an option, it wastes CPU the whole time the simulation is paused and the assignment explicitly asks to get rid of it.
+- **Global lock shared across all classes:** discarded because it would block robots that only want to request a package while another is registering a delivery, reducing throughput unnecessarily.
+- **`AtomicInteger`:** valid for simple counters, but in `DeliveryRegistry` the position, the increment and the `add` must be atomic together, and `AtomicInteger` only protects one variable at a time. Same problem in `WarehouseStatistics`, which has two fields (`processedParcels` and `totalProcessingMillis`) that need to stay in sync.
+- **`ReentrantLock`:** the assignment requires `synchronized` and for this case the same granularity is achieved with it.
+- **Private lock object instead of `synchronized` methods** ("Solución 2" from the class slides): this avoids exposing `this` as the monitor, which is flagged as an antipattern if the object is ever accessed from outside. We didn't use it because none of these 4 classes are ever referenced from outside `WarehouseRobot`/`WarehouseSimulation`, so there's nothing external that could lock on them by accident.
 
 ## Quality attributes affected
 
-- **Correctness/reliability**: gets rid of the race conditions we found (see `RaceConditionProbe` results in `docs/REPORT.md`, target is 0/100 anomalous runs).
-- **Performance/throughput**: locking each class separately instead of everything together means robots can still work in parallel as long as they're touching different shared objects.
-- **Maintainability**: each class handles its own locking, so you don't need to understand all 4 classes at once to know if one of them is thread-safe.
+| Attribute | Impact |
+|---|---|
+| Correctness | Improves: invariants of unique positions and consistent counters are guaranteed |
+| Performance | Slight reduction: robots wait their turn to enter critical regions, but blocking is minimal since each class has its own monitor |
+| Maintainability | Improves: the protected region is explicit and justified, no hidden locks or unnecessary synchronization |
 
 ## Evidence
 
-See `docs/REPORT.md` sections 2 (Observed anomalies) and 7 (Verification results) for the before/after `RaceConditionProbe` runs across 3 configurations (8/100, 16/250, 32/500 robots/parcels).
+### Nicolás
+- Before: `RaceConditionProbe` showed `Queue anomaly: IndexOutOfBoundsException` and duplicate positions in the registry.
+- After: `mvn clean test` passes with BUILD SUCCESS, 2/2 tests.
+
+### Vera
+- Before: `RaceConditionProbe` showed `processedCounter=242, registry=245` — a mismatch between the counter and the actual number of deliveries.
+- After: [COMPLETAR — Vera, correr el probe otra vez ya con todo mergeado y confirmar que el contador cuadra]
+
+### Mabel
+- Before: `WarehouseMain` printed "STARTER REPORT (intentionally premature)" while robots were still running; `SimulationControl` spun in a loop instead of sleeping.
+- After: `WarehouseMain` and `PauseResumeDemo` run cleanly, the final report only prints once all robots finish, and pause/resume works without busy-waiting.
 
 ## Consequences
 
-Operations on the same shared object now run one at a time instead of concurrently, which is fine since each of those operations is short. Robots working on different objects at the same instant can still run fully in parallel.
+- Each class protects its own invariants independently.
+- There is no global lock, so robots operating on different classes do not block each other.
+- The public behavior of each class did not change: same signatures, same semantics.
+- Correctness no longer depends on the operating system scheduler.
 
 ## Risks
 
+- If in the future logic is added that requires atomicity across two different classes, the separate monitors would not be sufficient and the design would need to be revisited.
 - If someone adds a new method later that touches these same fields without going through the synchronized methods, the protection breaks and the compiler won't warn about it.
 - `wait()`/`notifyAll()` in `SimulationControl` only works correctly if every caller goes through the synchronized methods — calling the internal logic from somewhere that skips the monitor would bring back the race.
+- In a scenario with multiple JVM instances behind a load balancer, `synchronized` does not protect anything across separate processes — the consistency guarantee would have to move to the database.
