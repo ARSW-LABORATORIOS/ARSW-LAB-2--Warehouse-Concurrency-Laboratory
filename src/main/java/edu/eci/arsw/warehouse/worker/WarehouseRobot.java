@@ -8,6 +8,8 @@ import edu.eci.arsw.warehouse.model.Parcel;
 
 import java.util.concurrent.ThreadLocalRandom;
 
+// Each robot runs as an independent thread, repeatedly taking and processing parcels
+// until the queue is empty.
 public class WarehouseRobot extends Thread {
 
     private final int robotId;
@@ -36,7 +38,12 @@ public class WarehouseRobot extends Thread {
     @Override
     public void run() {
         while (true) {
-            control.awaitIfPaused();
+            try {
+                control.awaitIfPaused();
+            } catch (InterruptedException ex) {
+                Thread.currentThread().interrupt();
+                return;
+            }
 
             Parcel parcel;
             try {
