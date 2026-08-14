@@ -134,6 +134,8 @@ I6: When the simulation is complete, there must be no pending parcels.
 
 ## 5. Critical regions and synchronization decisions
 
+Here's what each of us protected in our own class, and why we picked that exact chunk of code and not more:
+
 | Class                  | Critical region                                                                                                        | Protected invariant                                                                                              | Synchronization mechanism                         | Why this granularity?                                                                                                                                                                                                                                    |
 |--------------------------|---------------------------------------------------------------------------------------------------------------------------|------------------------------------------------------------------------------------------------------------------------|-------------------------------------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | `WarehouseStatistics`   | Update and read of `processedParcels` and `totalProcessingMillis`                                                       | I5                                                                                                                     | `synchronized` on the object monitor (methods)         | Only the methods that access the shared mutable statistics are synchronized, to avoid a global lock or synchronizing unrelated operations                                                                                                              |
@@ -175,9 +177,9 @@ When `pause()` gets called, a robot that's already in the middle of an iteration
 
 | Robots | Parcels | Runs | Anomalies before | Anomalies after |
 |--------|---------|------|-------------------|-------------------|
-| 8      | 100     | 100  | not swept at this exact config — see Evidence 1–3 for anomalies observed on the unfixed starter | 0/100 |
-| 16     | 250     | 100  | not swept at this exact config — see Evidence 1–3 for anomalies observed on the unfixed starter | 0/100 |
-| 32     | 500     | 100  | not swept at this exact config — see Evidence 1–3 for anomalies observed on the unfixed starter | 0/100 |
+| 8      | 100     | 100  | we didn't run this exact config before fixing — see Evidence 1-3 for what showed up on the broken starter | 0/100 |
+| 16     | 250     | 100  | we didn't run this exact config before fixing — see Evidence 1-3 for what showed up on the broken starter | 0/100 |
+| 32     | 500     | 100  | we didn't run this exact config before fixing — see Evidence 1-3 for what showed up on the broken starter | 0/100 |
 
 Commands used:
 ```
@@ -186,7 +188,7 @@ java -cp target/classes edu.eci.arsw.warehouse.verification.RaceConditionProbe 1
 java -cp target/classes edu.eci.arsw.warehouse.verification.RaceConditionProbe 100 32 500
 ```
 
-Ran these after all three branches were merged into `main`. All three configurations came back with **0 anomalous runs out of 100**, which matches the target the assignment asks for. We didn't run a full 100-run sweep of these exact configurations on the unfixed starter before merging (the qualitative evidence in Section 2 — captured while the bugs were still present — already showed the specific anomalies), so the "before" column points back to that evidence instead of a repeated count.
+We ran these after all three of us merged our branches into `main`. All three configurations came back **0 anomalous runs out of 100**, which is the target the assignment asks for. We didn't go back and run these exact 100-run tests on the broken starter before fixing everything (by the time we thought of it, the code was already fixed), so for the "before" column we're pointing back to Evidence 1-3, where we did see the bugs happen with the original code.
 
 ## 8. Quality-attribute analysis
 
@@ -213,4 +215,4 @@ No, it wouldn't work. `synchronized` only protects memory inside one JVM — if 
 
 What type of architectural mechanism would then be required?
 
-We'd need something outside any single JVM to be the actual source of truth — like a database with transactions/constraints, a distributed lock, or a queue that only lets one instance process a given parcel at a time. The point is that `synchronized` can't reach across machines, so the coordination has to move somewhere all three instances can see.
+We'd need something all three instances share and trust, outside of any single JVM's memory — like a database with transactions/constraints, a distributed lock, or a queue that only lets one instance process a given parcel at a time. Basically `synchronized` can't reach across machines, so whatever keeps things consistent has to live somewhere all three instances can see.

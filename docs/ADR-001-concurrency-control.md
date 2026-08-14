@@ -16,7 +16,7 @@ I used `synchronized` at method level in each class one by one. In `PackageQueue
 
 ### Mabel — SimulationControl and WarehouseMain
 
-I replaced the busy-wait in `SimulationControl` (`while (paused) { Thread.onSpinWait(); }`) with a monitor: `pause()`, `resume()`, `awaitIfPaused()` and `isPaused()` are all `synchronized` on the same object, `awaitIfPaused()` calls `wait()` instead of spinning, and `resume()` calls `notifyAll()` to wake every waiting robot at once. Separately, `WarehouseMain` now calls `simulation.awaitCompletion()` (which does `robot.join()` on every robot) instead of `Thread.sleep(60)`, so the final report only prints after all robots are actually done.
+I got rid of the busy-wait in `SimulationControl` — the old code just kept checking `while (paused) { Thread.onSpinWait(); }` over and over, which burns CPU for nothing. Now `pause()`, `resume()`, `awaitIfPaused()` and `isPaused()` are all `synchronized` on the same object, so a robot calling `awaitIfPaused()` actually goes to sleep with `wait()` instead of spinning, and `resume()` wakes everyone up at once with `notifyAll()`. On top of that, `WarehouseMain` used to print the final report after just `Thread.sleep(60)`, which doesn't really guarantee the robots are done — I changed it to call `simulation.awaitCompletion()` instead, which does `robot.join()` on every robot, so now the report only prints once everyone has actually finished.
 
 ## Alternatives considered
 
