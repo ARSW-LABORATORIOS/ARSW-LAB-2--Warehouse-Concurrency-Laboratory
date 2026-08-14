@@ -12,17 +12,18 @@ I used `synchronized` at method level in each class one by one. In `PackageQueue
 
 ### Vera — WarehouseStatistics
 
-[TO COMPLETE — Vera]
+*(borrador — Vera, ajusta si quieres cambiar algo)* I synchronized `recordProcessed()`, `processedParcels()` and `totalProcessingMillis()` so the counter and the total time always update together. Before, the method read the current value, waited, and wrote the new one in separate steps, so two robots could read the same value and one increment got lost. With `synchronized` only one robot can be inside `recordProcessed()` at a time, so that can't happen anymore.
 
 ### Mabel — SimulationControl and WarehouseMain
 
-[TO COMPLETE — Mabel]
+I replaced the busy-wait in `SimulationControl` (`while (paused) { Thread.onSpinWait(); }`) with a monitor: `pause()`, `resume()`, `awaitIfPaused()` and `isPaused()` are all `synchronized` on the same object, `awaitIfPaused()` calls `wait()` instead of spinning, and `resume()` calls `notifyAll()` to wake every waiting robot at once. Separately, `WarehouseMain` now calls `simulation.awaitCompletion()` (which does `robot.join()` on every robot) instead of `Thread.sleep(60)`, so the final report only prints after all robots are actually done.
 
 ## Alternatives considered
 
 - **Global lock shared across all classes:** discarded because it would block robots that only want to request a package while another is registering a delivery, reducing throughput unnecessarily.
-- **`AtomicInteger`:** valid for simple counters, but in `DeliveryRegistry` the position, the increment and the `add` must be atomic together, and `AtomicInteger` only protects one variable at a time.
+- **`AtomicInteger`:** valid for simple counters, but in `DeliveryRegistry` the position, the increment and the `add` must be atomic together, and `AtomicInteger` only protects one variable at a time. Same problem in `WarehouseStatistics`, which has two fields (`processedParcels` and `totalProcessingMillis`) that need to stay in sync.
 - **`ReentrantLock`:** the assignment requires `synchronized` and for this case the same granularity is achieved with it.
+- **Private lock object instead of `synchronized` methods** ("Solución 2" from the class slides): this avoids exposing `this` as the monitor, which is flagged as an antipattern if the object is ever accessed from outside. We didn't use it because none of these 4 classes are ever referenced from outside `WarehouseRobot`/`WarehouseSimulation`, so there's nothing external that could lock on them by accident.
 
 ## Quality attributes affected
 
@@ -39,12 +40,12 @@ I used `synchronized` at method level in each class one by one. In `PackageQueue
 - After: `mvn clean test` passes with BUILD SUCCESS, 2/2 tests.
 
 ### Vera
-
-[TO COMPLETE — Vera]
+- Before: `RaceConditionProbe` showed `processedCounter=242, registry=245` — a mismatch between the counter and the actual number of deliveries.
+- After: [COMPLETAR — Vera, correr el probe otra vez ya con todo mergeado y confirmar que el contador cuadra]
 
 ### Mabel
-
-[TO COMPLETE — Mabel]
+- Before: `WarehouseMain` printed "STARTER REPORT (intentionally premature)" while robots were still running; `SimulationControl` spun in a loop instead of sleeping.
+- After: `WarehouseMain` and `PauseResumeDemo` run cleanly, the final report only prints once all robots finish, and pause/resume works without busy-waiting.
 
 ## Consequences
 
@@ -56,4 +57,6 @@ I used `synchronized` at method level in each class one by one. In `PackageQueue
 ## Risks
 
 - If in the future logic is added that requires atomicity across two different classes, the separate monitors would not be sufficient and the design would need to be revisited.
+- If someone adds a new method later that touches these same fields without going through the synchronized methods, the protection breaks and the compiler won't warn about it.
+- `wait()`/`notifyAll()` in `SimulationControl` only works correctly if every caller goes through the synchronized methods — calling the internal logic from somewhere that skips the monitor would bring back the race.
 - In a scenario with multiple JVM instances behind a load balancer, `synchronized` does not protect anything across separate processes — the consistency guarantee would have to move to the database.
