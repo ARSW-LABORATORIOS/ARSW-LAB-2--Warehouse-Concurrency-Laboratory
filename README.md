@@ -477,3 +477,13 @@ Compare both designs in terms of:
 - contention;
 - readability;
 - extensibility.
+
+---
+
+# AI usage declaration
+
+Complete the following table:
+
+| Tool | Purpose | Main prompts or activities | Validation performed | Changes made by the team |
+|---|---|---|---|---|
+| Claude Code | Set up the shared GitHub repo and branches, implement the `SimulationControl`/`WarehouseMain` fix (pause/resume monitor and `join()`-based completion), help merge the team's three branches, draft `docs/REPORT.md` and `docs/ADR-001-concurrency-control.md` based on the team's own code and explanations, and run the verification probe | Asked for step-by-step guidance organizing the team's Git workflow (branches, PRs); asked for help implementing `wait()`/`notifyAll()` in `SimulationControl` and `join()` in `WarehouseMain`; asked for the report/ADR to be filled in based on the actual code and the course slides on race conditions and critical regions; asked to reconcile merge conflicts between the three branches' reports; asked for the report language to be rewritten in a more casual, first-person tone | Ran `mvn clean test` after every code change; ran `RaceConditionProbe` with the three required configurations (8/100, 16/250, 32/500), confirming 0/100 anomalies each; read through the generated code to confirm it only used `synchronized`/`wait()`/`notifyAll()`, matching what was covered in class | Rewrote the drafted report/ADR text by hand into a more natural team voice before pushing; decided which alternative synchronization mechanisms to keep or discard in the ADR; reviewed and corrected the critical-region reasoning for each class before submitting |

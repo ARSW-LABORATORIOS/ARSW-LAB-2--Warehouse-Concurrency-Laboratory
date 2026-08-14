@@ -19,11 +19,13 @@ public final class WarehouseMain {
         System.out.printf("Starting warehouse with %d robots and %d parcels...%n", robots, parcels);
         simulation.start();
 
-        // Wait for all robots to finish before printing the final report.
+        // Wait for every robot thread to actually finish before reporting.
+        // join() blocks until the target thread terminates, unlike Thread.sleep(),
+        // which only guarantees that time has passed.
         simulation.awaitCompletion();
         System.out.println("\n--- FINAL REPORT ---");
         printSnapshot(simulation.snapshot());
-        System.out.println("----------------------------------------------\n");
+        System.out.println("--------------------\n");
     }
 
     static void printSnapshot(WarehouseSnapshot snapshot) {
