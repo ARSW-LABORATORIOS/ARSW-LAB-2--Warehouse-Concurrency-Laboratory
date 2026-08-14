@@ -6,17 +6,17 @@ In the warehouse simulator, several robots (Java threads) share four objects: `P
 
 ## Decision
 
-### Nicolás — PackageQueue and DeliveryRegistry
+### Nicolás: PackageQueue and DeliveryRegistry
 
-I used `synchronized` at method level in each class one by one. In `PackageQueue`, `takeNext()` and `pendingCount()` were synchronized so the check, the read and the remove are a single atomic operation. In `DeliveryRegistry`, `register()` and `snapshot()` were synchronized so the read of `nextPosition`, the increment and the `add` cannot be interrupted by another robot. Each class has its own assigned monitor (`this`), independent from each other.
+We used `synchronized` at method level in each class one by one. In `PackageQueue`, `takeNext()` and `pendingCount()` were synchronized so the check, the read and the remove are a single atomic operation. In `DeliveryRegistry`, `register()` and `snapshot()` were synchronized so the read of `nextPosition`, the increment and the `add` cannot be interrupted by another robot. Each class has its own assigned monitor (`this`), independent from each other.
 
-### Vera — WarehouseStatistics
+### Vera: WarehouseStatistics
 
-*(borrador — Vera, ajusta si quieres cambiar algo)* I synchronized `recordProcessed()`, `processedParcels()` and `totalProcessingMillis()` so the counter and the total time always update together. Before, the method read the current value, waited, and wrote the new one in separate steps, so two robots could read the same value and one increment got lost. With `synchronized` only one robot can be inside `recordProcessed()` at a time, so that can't happen anymore.
+We synchronized `recordProcessed()`, `processedParcels()` and `totalProcessingMillis()` so the counter and the total time always update together. Before, the method read the current value, waited, and wrote the new one in separate steps, so two robots could read the same value and one increment got lost. With `synchronized` only one robot can be inside `recordProcessed()` at a time, so that can't happen anymore.
 
-### Mabel — SimulationControl and WarehouseMain
+### Mabel: SimulationControl and WarehouseMain
 
-I got rid of the busy-wait in `SimulationControl` — the old code just kept checking `while (paused) { Thread.onSpinWait(); }` over and over, which burns CPU for nothing. Now `pause()`, `resume()`, `awaitIfPaused()` and `isPaused()` are all `synchronized` on the same object, so a robot calling `awaitIfPaused()` actually goes to sleep with `wait()` instead of spinning, and `resume()` wakes everyone up at once with `notifyAll()`. On top of that, `WarehouseMain` used to print the final report after just `Thread.sleep(60)`, which doesn't really guarantee the robots are done — I changed it to call `simulation.awaitCompletion()` instead, which does `robot.join()` on every robot, so now the report only prints once everyone has actually finished.
+We got rid of the busy-wait in `SimulationControl`. The old code just kept checking `while (paused) { Thread.onSpinWait(); }` over and over, which burns CPU for nothing. Now `pause()`, `resume()`, `awaitIfPaused()` and `isPaused()` are all `synchronized` on the same object, so a robot calling `awaitIfPaused()` actually goes to sleep with `wait()` instead of spinning, and `resume()` wakes everyone up at once with `notifyAll()`. On top of that, `WarehouseMain` used to print the final report after just `Thread.sleep(60)`, which doesn't really guarantee the robots are done. We changed it to call `simulation.awaitCompletion()` instead, which does `robot.join()` on every robot, so now the report only prints once everyone has actually finished.
 
 ## Alternatives considered
 
@@ -40,8 +40,8 @@ I got rid of the busy-wait in `SimulationControl` — the old code just kept che
 - After: `mvn clean test` passes with BUILD SUCCESS, 2/2 tests.
 
 ### Vera
-- Before: `RaceConditionProbe` showed `processedCounter=242, registry=245` — a mismatch between the counter and the actual number of deliveries.
-- After: with all three branches merged, `RaceConditionProbe` came back 0/100 anomalous runs across all three required configurations (8/100, 16/250, 32/500) — the counter matches the registry size every time now.
+- Before: `RaceConditionProbe` showed `processedCounter=242, registry=245` (a mismatch between the counter and the actual number of deliveries).
+- After: with all three branches merged, `RaceConditionProbe` came back 0/100 anomalous runs across all three required configurations (8/100, 16/250, 32/500). The counter matches the registry size every time now.
 
 ### Mabel
 - Before: `WarehouseMain` printed "STARTER REPORT (intentionally premature)" while robots were still running; `SimulationControl` spun in a loop instead of sleeping.
@@ -58,5 +58,5 @@ I got rid of the busy-wait in `SimulationControl` — the old code just kept che
 
 - If in the future logic is added that requires atomicity across two different classes, the separate monitors would not be sufficient and the design would need to be revisited.
 - If someone adds a new method later that touches these same fields without going through the synchronized methods, the protection breaks and the compiler won't warn about it.
-- `wait()`/`notifyAll()` in `SimulationControl` only works correctly if every caller goes through the synchronized methods — calling the internal logic from somewhere that skips the monitor would bring back the race.
-- In a scenario with multiple JVM instances behind a load balancer, `synchronized` does not protect anything across separate processes — the consistency guarantee would have to move to the database.
+- `wait()`/`notifyAll()` in `SimulationControl` only works correctly if every caller goes through the synchronized methods. Calling the internal logic from somewhere that skips the monitor would bring back the race.
+- In a scenario with multiple JVM instances behind a load balancer, `synchronized` does not protect anything across separate processes. The consistency guarantee would have to move to the database.
