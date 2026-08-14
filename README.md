@@ -136,6 +136,8 @@ Complete the following table in your report:
 | `WarehouseStatistics` |  |  |  |  |
 | `SimulationControl` |  |  |  |  |
 
+> Filled in [`docs/REPORT.md`](docs/REPORT.md#1-shared-state-inventory).
+
 ## 2. Evidence of incorrect behavior
 
 Record at least **three different anomalies** observed during execution.
@@ -166,6 +168,8 @@ For each anomaly include:
 <your evidence>
 ```
 
+> Filled in [`docs/REPORT.md`](docs/REPORT.md#2-observed-anomalies).
+
 ## 3. Interleaving analysis
 
 Choose one race condition and describe a possible interleaving.
@@ -184,6 +188,8 @@ Answer:
 **Why is the final result dependent on scheduling?**
 
 > _Write your answer here._
+
+> Filled in [`docs/REPORT.md`](docs/REPORT.md#3-interleaving-analysis).
 
 ---
 
@@ -216,6 +222,8 @@ I3:
 ...
 ```
 
+> Filled in [`docs/REPORT.md`](docs/REPORT.md#4-system-invariants).
+
 ---
 
 # Part III — Protect only the critical regions
@@ -244,6 +252,8 @@ Answer:
 
 > _Write your answer here._
 
+> Filled in [`docs/REPORT.md`](docs/REPORT.md#5-critical-regions-and-synchronization-decisions).
+
 ---
 
 # Part IV — Correct thread completion
@@ -264,6 +274,8 @@ Document:
 > Why is `Thread.sleep(...)` not a valid substitute for `join()` when waiting for a worker to finish?
 
 > _Write your answer here._
+
+> Filled in [`docs/REPORT.md`](docs/REPORT.md#6-thread-completion-and-pauseresume-coordination).
 
 ---
 
@@ -307,6 +319,8 @@ Explain:
 
 > _Write your answer here._
 
+> Filled in [`docs/REPORT.md`](docs/REPORT.md#6-thread-completion-and-pauseresume-coordination).
+
 ---
 
 # Part VI — Verification
@@ -333,6 +347,8 @@ Run at least three configurations:
 | 8 | 100 |  |  |  |
 | 16 | 250 |  |  |  |
 | 32 | 500 |  |  |  |
+
+> Filled in [`docs/REPORT.md`](docs/REPORT.md#7-verification-results).
 
 ---
 
@@ -370,6 +386,8 @@ Answer:
 
 Do not implement a distributed solution. Analyze it.
 
+> Filled in [`docs/REPORT.md`](docs/REPORT.md#8-quality-attribute-analysis).
+
 ---
 
 # Part VIII — Mini ADR
@@ -399,6 +417,8 @@ Use this structure:
 
 ## Risks
 ```
+
+> Filled in [`docs/ADR-001-concurrency-control.md`](docs/ADR-001-concurrency-control.md).
 
 ---
 
