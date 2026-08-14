@@ -13,9 +13,9 @@
 
 | Name | Student ID | GitHub |
 |---|---|---|
-| Mabel | | |
-| Vera | | |
-| Nicolás | | |
+| Juan Eduardo Vera Acero | 1000091871 | juanvera |
+| Mabel Fernanda Bernal Amaya | 1000100629 | MabelBernalAmaya |
+| Nicolás David Prieto Ramos | 1000091873 | NicolasPrieto12 |
 
 **Repository:**  
 `https://github.com/ARSW-LABORATORIOS/ARSW-LAB-2--Warehouse-Concurrency-Laboratory`
