@@ -1,42 +1,42 @@
-# ARSW — Laboratorio #2
-## Plantilla de entrega — Autonomous Warehouse
+# ARSW — Lab #2
+## Delivery Template — Autonomous Warehouse
 
-**Asignatura:** Arquitecturas de Software — ARSW  
-**Periodo:** 2026-2  
-**Laboratorio:** #2 — Autonomous Warehouse  
-**Tema:** Race Conditions · Critical Sections · Thread Coordination  
-**Tecnología:** Java 21 · Maven · JUnit 5  
+**Course:** Software Architectures — ARSW  
+**Period:** 2026-2  
+**Lab:** #2 — Autonomous Warehouse  
+**Topic:** Race Conditions · Critical Sections · Thread Coordination  
+**Technology:** Java 21 · Maven · JUnit 5  
 
 ---
 
-## 0. Información del equipo
+## 0. Team information
 
-| Integrante | Código / ID | GitHub |
+| Name | Student ID | GitHub |
 |---|---|---|
 | Mabel | | |
 | Vera | | |
 | Nicolás | | |
 
-**Repositorio:**  
+**Repository:**  
 `https://github.com/ARSW-LABORATORIOS/ARSW-LAB-2--Warehouse-Concurrency-Laboratory`
 
-**Commit final:**  
+**Final commit:**  
 `9a86263`
 
 ---
 
-# 1. Evidencia de ejecución inicial
+# 1. Initial execution evidence
 
-## 1.1 Verificación del entorno
+## 1.1 Environment check
 
-Incluya la salida de:
+Output of:
 
 ```bash
 java -version
 mvn -version
 ```
 
-**Evidencia:**
+**Evidence:**
 
 ```text
 openjdk version "21.0.11" 2025-04-15 LTS
@@ -49,26 +49,26 @@ Java version: 21.0.11, vendor: Microsoft
 
 ---
 
-## 1.2 Ejecución inicial
+## 1.2 First run
 
-Comando utilizado:
+Command used:
 
 ```bash
 java -cp target/classes edu.eci.arsw.warehouse.app.WarehouseMain
 ```
 
-o la configuración utilizada:
+or with arguments:
 
 ```bash
 java -cp target/classes edu.eci.arsw.warehouse.app.WarehouseMain <robots> <packages>
 ```
 
-**Configuración utilizada:**
+**Configuration used:**
 
 - Robots: 12
-- Paquetes: 100
+- Packages: 100
 
-**Resultado observado:**
+**What we saw:**
 
 ```text
 Starting warehouse with 12 robots and 100 parcels...
@@ -82,36 +82,36 @@ Registry size   : 97
 
 ---
 
-# 2. Estado mutable compartido
+# 2. Shared mutable state
 
-Identifique los objetos y variables compartidas entre múltiples threads.
+Objects and variables shared between multiple threads.
 
-| Objeto / Clase | Estado mutable compartido | Quién lee | Quién modifica | Riesgo identificado |
+| Object / Class | Shared mutable state | Who reads | Who writes | Identified risk |
 |---|---|---|---|---|
-| `PackageQueue` | Lista `pending` de paquetes | Robots y snapshot | Robots usando `takeNext()` | Un paquete puede ser tomado por dos robots al mismo tiempo |
-| `DeliveryRegistry` | Lista `deliveries` y `nextPosition` | Snapshot y verificación | Robots usando `register()` | Dos robots pueden recibir la misma posición de entrega |
-| `WarehouseStatistics` | `processedParcels` y `totalProcessingMillis` | Snapshot y reporte | Robots usando `recordProcessed()` | Incrementos perdidos por read-modify-write no atómico |
-| `SimulationControl` | Bandera `paused` | Todos los robots | `pause()` y `resume()` | Un robot pausado puede seguir consumiendo paquetes; busy-wait quema CPU |
+| `PackageQueue` | `pending` list of packages | Robots and snapshot | Robots using `takeNext()` | Two robots can take the same package at the same time |
+| `DeliveryRegistry` | `deliveries` list and `nextPosition` | Snapshot and verification | Robots using `register()` | Two robots can get the same delivery position |
+| `WarehouseStatistics` | `processedParcels` and `totalProcessingMillis` | Snapshot and report | Robots using `recordProcessed()` | Lost increments because read-modify-write is not atomic |
+| `SimulationControl` | `paused` flag | All robots | `pause()` and `resume()` | A paused robot can keep consuming packages; busy-wait wastes CPU |
 
 ---
 
-# 3. Condiciones de carrera encontradas
+# 3. Race conditions found
 
 ## Race Condition #1
 
-**Clase / método involucrado:**  
+**Class / method:**  
 `PackageQueue.takeNext()`
 
-**Estado compartido involucrado:**  
+**Shared state involved:**  
 `List<Parcel> pending`
 
-**Comportamiento observado:**  
-`IndexOutOfBoundsException` en tiempo de ejecución; un robot intenta leer o remover un elemento que ya fue removido por otro robot.
+**What happened:**  
+`IndexOutOfBoundsException` at runtime. A robot tried to read or remove an element that another robot had already removed.
 
-**¿Por qué ocurre?**  
-El check `isEmpty()`, el `get(0)` y el `remove(0)` son tres pasos separados. Entre el check y el remove, otro robot puede remover el último elemento, dejando la lista vacía antes de que el primer robot llegue al remove.
+**Why does it happen?**  
+The `isEmpty()` check, the `get(0)` and the `remove(0)` are three separate steps. Between the check and the remove, another robot can remove the last element, so the list is empty by the time the first robot tries to remove.
 
-**Evidencia de ejecución:**
+**Execution evidence:**
 
 ```text
 [warehouse-robot-12] Queue anomaly: IndexOutOfBoundsException
@@ -121,19 +121,19 @@ El check `isEmpty()`, el `get(0)` y el `remove(0)` son tres pasos separados. Ent
 
 ## Race Condition #2
 
-**Clase / método involucrado:**  
+**Class / method:**  
 `WarehouseStatistics.recordProcessed()`
 
-**Estado compartido involucrado:**  
+**Shared state involved:**  
 `int processedParcels`
 
-**Comportamiento observado:**  
-El contador `processedParcels` es menor que el número de entregas en el registro.
+**What happened:**  
+The `processedParcels` counter was lower than the number of deliveries in the registry.
 
-**¿Por qué ocurre?**  
-`processedParcels++` no es atómico: el JVM lo descompone en leer el valor, sumarle 1 y escribirlo. Si dos robots leen el mismo valor antes de que alguno escriba, uno de los incrementos se pierde.
+**Why does it happen?**  
+`processedParcels++` is not atomic. The JVM breaks it into three steps: read the value, add 1, write it back. If two robots read the same value before either one writes, one increment gets lost.
 
-**Evidencia de ejecución:**
+**Execution evidence:**
 
 ```text
 processedCounter=242, registry=245
@@ -143,19 +143,19 @@ processedCounter=242, registry=245
 
 ## Race Condition #3
 
-**Clase / método involucrado:**  
+**Class / method:**  
 `DeliveryRegistry.register()`
 
-**Estado compartido involucrado:**  
+**Shared state involved:**  
 `int nextPosition`, `List<DeliveryRecord> deliveries`
 
-**Comportamiento observado:**  
-Dos entregas reciben la misma posición; las posiciones no forman una secuencia continua.
+**What happened:**  
+Two deliveries got the same position. The positions did not form a continuous sequence.
 
-**¿Por qué ocurre?**  
-La lectura de `nextPosition`, el incremento y el `add` son tres pasos separados. Dos robots pueden leer el mismo `nextPosition` antes de que alguno lo incremente, asignando la misma posición a dos entregas distintas.
+**Why does it happen?**  
+Reading `nextPosition`, incrementing it and calling `add` are three separate steps. Two robots can read the same `nextPosition` before either one increments it, so both deliveries get the same position.
 
-**Evidencia de ejecución:**
+**Execution evidence:**
 
 ```text
 registry=245, uniquePositions=232, positionsContiguous=false
@@ -165,154 +165,152 @@ registry=245, uniquePositions=232, positionsContiguous=false
 
 # 4. Interleaving
 
-**Condición seleccionada:**  
-`WarehouseStatistics.recordProcessed()` — lost update en `processedParcels`
+**Selected condition:**  
+`WarehouseStatistics.recordProcessed()` — lost update on `processedParcels`
 
-| Paso | Thread A | Thread B | Estado compartido |
+| Step | Thread A | Thread B | Shared state |
 |---:|---|---|---|
-| 1 | Lee `processedParcels = 10` | | `processedParcels = 10` |
-| 2 | | Lee `processedParcels = 10` | `processedParcels = 10` |
-| 3 | Calcula `10 + 1 = 11` | | `processedParcels = 10` |
-| 4 | | Calcula `10 + 1 = 11` | `processedParcels = 10` |
-| 5 | Escribe `processedParcels = 11` | | `processedParcels = 11` |
-| 6 | | Escribe `processedParcels = 11` | `processedParcels = 11` |
+| 1 | Reads `processedParcels = 10` | | `processedParcels = 10` |
+| 2 | | Reads `processedParcels = 10` | `processedParcels = 10` |
+| 3 | Calculates `10 + 1 = 11` | | `processedParcels = 10` |
+| 4 | | Calculates `10 + 1 = 11` | `processedParcels = 10` |
+| 5 | Writes `processedParcels = 11` | | `processedParcels = 11` |
+| 6 | | Writes `processedParcels = 11` | `processedParcels = 11` |
 
-### Explicación
+### Explanation
 
-¿Por qué este orden de ejecución produce un resultado incorrecto?
+Why does this execution order produce a wrong result?
 
-**Respuesta:**
+**Answer:**
 
-Ambos robots procesaron un paquete, por lo que el contador debería quedar en 12. Sin embargo, como los dos leyeron el mismo valor (10) antes de que alguno escribiera, los dos calcularon 11 y el resultado final es 11 en lugar de 12. Un incremento se perdió. El resultado depende del scheduling porque si el scheduler hubiera dejado que Thread A terminara completamente antes de que Thread B leyera, el resultado sería correcto. No controlamos ese orden.
+Both robots processed a package, so the counter should end up at 12. But since both read the same value (10) before either one wrote, both calculated 11 and the final result is 11 instead of 12. One increment was lost. The result depends on scheduling because if the scheduler had let Thread A finish completely before Thread B read the value, the result would be correct. We have no control over that order.
 
 ---
 
-# 5. Invariantes del sistema
+# 5. System invariants
 
 ## I1
 
-`Cada paquete debe ser procesado exactamente una vez (no puede ser tomado por dos robots al mismo tiempo ni desaparecer del sistema).`
+`Every package must be processed exactly once. It cannot be taken by two robots at the same time and it cannot disappear from the system.`
 
 ## I2
 
-`Ningún paquete puede desaparecer del sistema: la suma de paquetes pendientes y entregados debe ser siempre igual al total inicial.`
+`No package can disappear from the system. The sum of pending and delivered packages must always equal the initial total.`
 
 ## I3
 
-`Cada posición de llegada debe ser única: no pueden existir dos entregas con la misma posición.`
+`Every delivery position must be unique. No two deliveries can have the same position.`
 
-## I4 — opcional
+## I4 — optional
 
-`Las posiciones de llegada deben formar una secuencia continua de 1 a N, sin huecos. El contador de procesados debe coincidir con el número de registros de entrega.`
+`Delivery positions must form a continuous sequence from 1 to N with no gaps. The processed counter must match the number of delivery records.`
 
 ---
 
-# 6. Regiones críticas
+# 6. Critical regions
 
-| Clase | Región crítica | Invariante protegida | Mecanismo usado | ¿Por qué ese tamaño? |
+| Class | Critical region | Protected invariant | Mechanism used | Why this size? |
 |---|---|---|---|---|
-| `PackageQueue` | `isEmpty()` + `get(0)` + `remove(0)` dentro de `takeNext()`, y `size()` en `pendingCount()` | I1, I2 | `synchronized` en los dos métodos | Si solo se sincronizara el `remove` y no el check+get juntos, otro robot podría colarse entre esos pasos. Todo el check-then-act debe ser atómico. |
-| `DeliveryRegistry` | Lectura de `nextPosition`, incremento y `deliveries.add()` en `register()`; iteración de `deliveries` en `snapshot()` | I3, I4 | `synchronized` en `register()` y `snapshot()` | Separar la lectura del incremento permitiría que dos robots lean el mismo `nextPosition`. `snapshot()` también se sincroniza para no leer una lista a medio escribir. |
-| `WarehouseStatistics` | Actualización de `processedParcels` y `totalProcessingMillis` en `recordProcessed()`; lecturas en los getters | I4 (contador == registros) | `synchronized` en los tres métodos | Los dos campos deben actualizarse juntos; dos `AtomicInteger` separados no garantizan consistencia entre ellos. |
-| `SimulationControl` | Lectura/escritura de `paused` en `pause()`, `resume()`, `awaitIfPaused()`, `isPaused()` | I1 indirectamente (robot pausado no consume paquetes) | `synchronized` + `wait()` / `notifyAll()` | Los cuatro métodos tocan la misma variable booleana y deben coordinarse en el mismo monitor para que `wait()`/`notifyAll()` funcionen correctamente. |
+| `PackageQueue` | `isEmpty()` + `get(0)` + `remove(0)` inside `takeNext()`, and `size()` in `pendingCount()` | I1, I2 | `synchronized` on both methods | If we only synchronized the `remove` and not the check+get together, another robot could get in between those steps. The whole check-then-act sequence has to be atomic. |
+| `DeliveryRegistry` | Reading `nextPosition`, incrementing it and `deliveries.add()` inside `register()`; iterating `deliveries` in `snapshot()` | I3, I4 | `synchronized` on `register()` and `snapshot()` | Splitting the read from the increment would let two robots read the same `nextPosition`. `snapshot()` is also synchronized so we don't read a list that is being written at the same time. |
+| `WarehouseStatistics` | Updating `processedParcels` and `totalProcessingMillis` in `recordProcessed()`; reads in the getters | I4 (counter == records) | `synchronized` on all three methods | Both fields need to update together. Two separate `AtomicInteger` values would not guarantee that both are updated as one single operation. |
+| `SimulationControl` | Read/write of `paused` in `pause()`, `resume()`, `awaitIfPaused()`, `isPaused()` | I1 indirectly (a paused robot must not keep consuming packages) | `synchronized` + `wait()` / `notifyAll()` | All four methods touch the same boolean and need to coordinate on the same monitor so that `wait()`/`notifyAll()` work correctly. |
 
 ---
 
-# 7. Decisiones de sincronización
+# 7. Synchronization decisions
 
-## 7.1 Alternativas consideradas
-
-Marque y explique cuáles evaluaron:
+## 7.1 Alternatives considered
 
 - [x] `synchronized`
 - [ ] `AtomicInteger`
-- [ ] Colecciones concurrentes
+- [ ] Concurrent collections
 - [ ] `Lock`
 - [x] `wait()` / `notifyAll()`
-- [ ] Otra: `________________________`
+- [ ] Other: `________________________`
 
-### Alternativa 1
+### Alternative 1
 
-**Descripción:**  
-`AtomicInteger` / `AtomicLong` para los contadores de `WarehouseStatistics`.
+**Description:**  
+`AtomicInteger` / `AtomicLong` for the counters in `WarehouseStatistics`.
 
-**Ventaja:**  
-Son operaciones lock-free; para un solo contador son más eficientes que `synchronized`.
+**Advantage:**  
+They are lock-free operations. For a single counter they are faster than `synchronized`.
 
-**Desventaja:**  
-`WarehouseStatistics` tiene dos campos (`processedParcels` y `totalProcessingMillis`) que deben actualizarse juntos. Dos `Atomic*` separados no garantizan que ambos se actualicen como una sola operación atómica, por lo que el invariante "contador == registros" podría romperse entre las dos escrituras.
+**Disadvantage:**  
+`WarehouseStatistics` has two fields (`processedParcels` and `totalProcessingMillis`) that need to update together. Two separate `Atomic*` values do not guarantee that both update as one atomic operation, so the invariant "counter == records" could break between the two writes.
 
-### Alternativa 2
+### Alternative 2
 
-**Descripción:**  
-Un lock global compartido entre todas las clases (`PackageQueue`, `DeliveryRegistry`, `WarehouseStatistics`, `SimulationControl`).
+**Description:**  
+One global lock shared across all classes (`PackageQueue`, `DeliveryRegistry`, `WarehouseStatistics`, `SimulationControl`).
 
-**Ventaja:**  
-Implementación simple: un solo objeto de lock, imposible olvidar sincronizar algo.
+**Advantage:**  
+Simple to implement. One lock object, impossible to forget to synchronize something.
 
-**Desventaja:**  
-Destruye el paralelismo innecesariamente. Un robot registrando una entrega bloquearía a otro que solo quiere tomar un paquete, aunque esas dos operaciones no comparten ningún dato.
+**Disadvantage:**  
+It kills parallelism for no reason. A robot registering a delivery would block another robot that just wants to take a new package, even though those two operations do not share any data.
 
-### Decisión final
+### Final decision
 
-**Mecanismo seleccionado:**  
-`synchronized` a nivel de método en cada clase, con su propio monitor (`this`). Para `SimulationControl`, además `wait()` / `notifyAll()`.
+**Selected mechanism:**  
+`synchronized` at method level in each class, using its own monitor (`this`). For `SimulationControl`, also `wait()` / `notifyAll()`.
 
-**Justificación:**  
-`synchronized` por clase es el nivel correcto de granularidad: lo suficientemente pequeño para no bloquear operaciones no relacionadas, y lo suficientemente grande para cubrir el invariante completo de cada clase. `wait()`/`notifyAll()` en `SimulationControl` es la única forma de hacer que un robot espere sin quemar CPU, ya que `wait()` libera el monitor mientras duerme y `notifyAll()` despierta a todos los robots a la vez cuando se llama `resume()`.
+**Justification:**  
+`synchronized` per class is the right level of granularity: small enough to not block unrelated operations, and big enough to cover the full invariant of each class. `wait()`/`notifyAll()` in `SimulationControl` is the only way to make a robot wait without burning CPU, because `wait()` releases the monitor while sleeping and `notifyAll()` wakes all robots at once when `resume()` is called.
 
 ---
 
-# 8. Finalización de threads
+# 8. Thread completion
 
-Explique cómo garantizaron que el programa solamente genera el reporte final cuando todos los robots han terminado.
+How we made sure the final report only prints when all robots are done.
 
-**Mecanismo utilizado:**  
-`simulation.awaitCompletion()` que internamente llama `robot.join()` por cada robot.
+**Mechanism used:**  
+`simulation.awaitCompletion()`, which calls `robot.join()` for every robot.
 
-**Explicación:**  
-`WarehouseMain` llamaba `Thread.sleep(60)` antes de imprimir el reporte, lo que solo garantiza que pasaron 60 ms, no que los robots terminaron. Se reemplazó por `simulation.awaitCompletion()`, que hace `join()` sobre cada thread de robot. `join()` bloquea hasta que ese thread específico termina su ejecución, sin importar cuánto tarde. El reporte solo se imprime una vez que todos los `join()` retornan, es decir, cuando todos los robots han terminado.
+**Explanation:**  
+`WarehouseMain` used to call `Thread.sleep(60)` before printing the report. That only guarantees that 60 ms passed, not that the robots finished. We replaced it with `simulation.awaitCompletion()`, which calls `join()` on every robot thread. `join()` blocks until that specific thread finishes, no matter how long it takes. The report only prints once all `join()` calls return, meaning all robots are actually done.
 
-### Pregunta
+### Question
 
-¿Por qué usar `Thread.sleep(...)` no sería una solución correcta para esperar la finalización de todos los workers?
+Why is `Thread.sleep(...)` not a correct solution for waiting for all workers to finish?
 
-**Respuesta:**  
-`Thread.sleep(ms)` solo garantiza que pasó ese tiempo, no que los robots terminaron. Si hay más robots o paquetes de lo esperado, el sleep puede terminar antes de que los robots acaben, y el reporte se imprime con datos incompletos. Además, si los robots terminan antes del tiempo del sleep, se espera tiempo innecesario. `join()` es determinista: bloquea exactamente hasta que el thread termina, sin importar cuánto tarde.
+**Answer:**  
+`Thread.sleep(ms)` only guarantees that time passed, not that the robots finished. If there are more robots or packages than expected, the sleep can end before the robots are done and the report prints with incomplete data. Also, if the robots finish before the sleep ends, we wait for no reason. `join()` is deterministic: it blocks exactly until the thread finishes, no matter how long that takes.
 
 ---
 
 # 9. PAUSE / RESUME
 
-## 9.1 Problema inicial
+## 9.1 Initial problem
 
-Explique por qué el busy waiting de la implementación inicial no es adecuado.
+Why the busy-wait in the original code is not a good solution.
 
-**Respuesta:**  
-El código original usaba `while (paused) { Thread.onSpinWait(); }`. Esto hace que cada robot pausado ejecute un loop vacío continuamente, consumiendo tiempo de CPU sin hacer ningún trabajo útil. Con 12 o más robots pausados, todos compiten por CPU sin necesidad. Además, `Thread.onSpinWait()` es una hint para el procesador pero no libera el scheduler, por lo que los robots pausados siguen siendo considerados "activos" y consumen recursos del sistema.
+**Answer:**  
+The original code used `while (paused) { Thread.onSpinWait(); }`. This makes every paused robot run an empty loop over and over, using CPU time without doing any real work. With 12 or more robots paused, all of them compete for CPU for no reason. `Thread.onSpinWait()` is just a hint to the processor and does not release the scheduler, so paused robots are still considered active and keep consuming system resources.
 
 ---
 
-## 9.2 Solución implementada
+## 9.2 Our solution
 
-Explique cómo implementaron:
+How we implemented:
 
 - `pause()`
-- espera de los workers
+- workers waiting
 - `resume()`
-- despertar coordinado de los workers
+- coordinated wake-up of workers
 
-**Respuesta:**  
-- `pause()`: método `synchronized` que setea `paused = true`. Al ser synchronized, solo un hilo puede modificar la variable a la vez.
-- Espera de los workers: `awaitIfPaused()` es `synchronized` y usa `while (paused) { wait(); }`. El `while` (no `if`) protege contra spurious wakeups: el robot vuelve a verificar la condición antes de continuar. `wait()` libera el monitor y pone el thread a dormir, sin consumir CPU.
-- `resume()`: método `synchronized` que setea `paused = false` y llama `notifyAll()`.
-- Despertar coordinado: `notifyAll()` despierta a todos los robots que estaban en `wait()` a la vez. Cada uno vuelve a verificar `while (paused)` y, como ya es `false`, continúa su ejecución.
+**Answer:**  
+- `pause()`: a `synchronized` method that sets `paused = true`. Because it is synchronized, only one thread can change the variable at a time.
+- Workers waiting: `awaitIfPaused()` is `synchronized` and uses `while (paused) { wait(); }`. We use `while` instead of `if` to handle spurious wakeups: the robot checks the condition again before continuing. `wait()` releases the monitor and puts the thread to sleep without using CPU.
+- `resume()`: a `synchronized` method that sets `paused = false` and calls `notifyAll()`.
+- Coordinated wake-up: `notifyAll()` wakes all robots that were in `wait()` at the same time. Each one checks `while (paused)` again and, since it is now `false`, continues running.
 
 ---
 
-## 9.3 Snapshot consistente
+## 9.3 Consistent snapshot
 
-Cuando la simulación está pausada, registre:
+When the simulation is paused:
 
 ```text
 Processed parcels: 47
@@ -321,36 +319,36 @@ Registry size:     47
 Current leader:    Robot-03 / parcel 12 / position 1
 ```
 
-Explique cómo garantizan que esos valores representan un estado consistente.
+How we guarantee those values represent a consistent state.
 
-**Respuesta:**  
-Cuando se llama `pause()`, un robot que ya está en medio de una iteración no se detiene inmediatamente. Termina de procesar el paquete actual, llama `register()` y `recordProcessed()`, y solo después llega a `awaitIfPaused()` y se duerme. Como `register()` y `recordProcessed()` son `synchronized`, quien lee el snapshot mientras la simulación está pausada solo puede ver el estado antes o después de que esas llamadas terminaron, nunca a mitad de una escritura. El snapshot es siempre una foto de robots que terminaron su paso actual, no de uno atrapado a mitad de una actualización.
+**Answer:**  
+When `pause()` is called, a robot that is already in the middle of an iteration does not stop right away. It finishes processing the current package, calls `register()` and `recordProcessed()`, and only then reaches `awaitIfPaused()` and goes to sleep. Since `register()` and `recordProcessed()` are `synchronized`, anyone reading the snapshot while paused can only see the state before or after one of those calls finished, never in the middle of a write. The snapshot is always a picture of robots that finished their current step, not one caught halfway through an update.
 
 ---
 
-# 10. Verificación con RaceConditionProbe
+# 10. Verification with RaceConditionProbe
 
-Ejecute:
+Command:
 
 ```bash
 java -cp target/classes edu.eci.arsw.warehouse.verification.RaceConditionProbe 100 32 500
 ```
 
-## Resultados
+## Results
 
-| Robots | Paquetes | Runs | Anomalías antes | Anomalías después |
+| Robots | Packages | Runs | Anomalies before | Anomalies after |
 |---:|---:|---:|---:|---:|
-| 8 | 100 | 100 | ver Evidencias 1-3 (starter roto) | 0 |
-| 16 | 250 | 100 | ver Evidencias 1-3 (starter roto) | 0 |
-| 32 | 500 | 100 | ver Evidencias 1-3 (starter roto) | 0 |
+| 8 | 100 | 100 | see Evidence 1-3 (broken starter) | 0 |
+| 16 | 250 | 100 | see Evidence 1-3 (broken starter) | 0 |
+| 32 | 500 | 100 | see Evidence 1-3 (broken starter) | 0 |
 
-### Resultado final esperado
+### Expected final result
 
 ```text
 Anomalous runs: 0/100
 ```
 
-**Salida obtenida:**
+**Output we got:**
 
 ```text
 Running 100 simulations with 8 robots and 100 parcels...
@@ -365,42 +363,42 @@ Anomalous runs: 0/100  ✓
 
 ---
 
-# 11. Evidencia de correctitud
+# 11. Correctness evidence
 
-Explique brevemente cómo demuestran que su solución es correcta.
+Brief explanation of how we show our solution is correct.
 
-**Conclusión:**
+**Conclusion:**
 
-Las invariantes I1–I4 se verifican automáticamente por `InvariantChecker` en cada run del `RaceConditionProbe`. En 300 ejecuciones totales (100 por cada configuración de carga), ninguna produjo anomalías: no hubo paquetes duplicados, no hubo posiciones repetidas, el contador de procesados coincidió con el tamaño del registro, y no quedaron paquetes pendientes al finalizar. La consistencia durante la pausa se garantiza porque los robots terminan su operación actual antes de dormir, y `register()`/`recordProcessed()` son atómicos. La finalización correcta se garantiza con `join()` en lugar de `Thread.sleep()`. Los 2/2 tests de `InvariantCheckerTest` pasan con `mvn clean test`.
+The invariants I1–I4 are checked automatically by `InvariantChecker` in every run of `RaceConditionProbe`. In 300 total runs (100 per load configuration), none of them produced anomalies: no duplicate packages, no repeated positions, the processed counter matched the registry size, and no packages were left pending at the end. Consistency during pause is guaranteed because robots finish their current step before going to sleep, and `register()`/`recordProcessed()` are atomic. Correct completion is guaranteed with `join()` instead of `Thread.sleep()`. The 2/2 tests in `InvariantCheckerTest` pass with `mvn clean test`.
 
 ---
 
-# 12. Impacto en atributos de calidad
+# 12. Impact on quality attributes
 
-| Atributo | Impacto de la solución | Evidencia / métrica |
+| Attribute | Impact of our solution | Evidence / metric |
 |---|---|---|
-| Correctitud / Reliability | Mejora: las invariantes de posiciones únicas y contadores consistentes están garantizadas | 0/100 anomalías en RaceConditionProbe; 2/2 tests pasan |
-| Performance / Throughput | Leve reducción: los robots esperan turno para entrar a regiones críticas, pero el bloqueo es mínimo porque cada clase tiene su propio monitor | Las secciones críticas son de pocas líneas; robots en clases distintas no se bloquean entre sí |
-| Maintainability | Mejora: cada clase maneja su propia sincronización; la región protegida es explícita y justificada | Sin locks ocultos ni sincronización innecesaria |
-| Scalability | Aceptable dentro de una JVM: más robots solo aumentan la contención en las regiones críticas, que son pequeñas. No escala a múltiples JVMs | Ver sección 14 para el análisis multi-instancia |
+| Correctness / Reliability | Better: the invariants for unique positions and consistent counters are now guaranteed | 0/100 anomalies in RaceConditionProbe; 2/2 tests pass |
+| Performance / Throughput | Slightly lower: robots wait their turn to enter critical regions, but the wait is short because each class has its own monitor | Critical sections are only a few lines; robots in different classes do not block each other |
+| Maintainability | Better: each class handles its own synchronization; the protected region is clear and justified | No hidden locks or unnecessary synchronization |
+| Scalability | Acceptable inside one JVM: more robots only increase contention in small critical sections. Does not scale to multiple JVMs | See section 14 for the multi-instance analysis |
 
 ---
 
-# 13. Trade-off principal
+# 13. Main trade-off
 
-¿Qué ganaron y qué sacrificaron al introducir sincronización?
+What we gained and what we gave up by adding synchronization.
 
-**Respuesta:**
+**Answer:**
 
-Ganamos correctitud determinista: las invariantes del sistema se cumplen en todas las ejecuciones, sin importar el orden en que el scheduler ejecute los threads. Los paquetes no se duplican, las posiciones son únicas y el reporte final es siempre correcto.
+We gained deterministic correctness: the system invariants hold in every run, no matter what order the scheduler picks for the threads. Packages are not duplicated, positions are unique and the final report is always correct.
 
-Sacrificamos algo de paralelismo: cuando dos robots quieren acceder al mismo objeto al mismo tiempo, uno debe esperar. Sin embargo, al usar un monitor por clase en lugar de un lock global, minimizamos la contención: un robot registrando una entrega no bloquea a otro que solo quiere tomar un paquete nuevo.
+We gave up some parallelism: when two robots want to access the same object at the same time, one has to wait. But by using one monitor per class instead of one global lock, we kept contention low. A robot registering a delivery does not block another robot that just wants to pick up a new package.
 
 ---
 
-# 14. Análisis arquitectónico
+# 14. Architectural analysis
 
-Suponga ahora que existen tres instancias de la aplicación:
+Suppose there are now three instances of the application:
 
 ```text
                  Load Balancer
@@ -412,36 +410,36 @@ Suponga ahora que existen tres instancias de la aplicación:
                     Database
 ```
 
-## 14.1 Pregunta
+## 14.1 Question
 
-¿Los bloques `synchronized` utilizados dentro de una JVM garantizan consistencia entre `App A`, `App B` y `App C`?
+Do the `synchronized` blocks inside one JVM guarantee consistency between `App A`, `App B` and `App C`?
 
-- [ ] Sí
+- [ ] Yes
 - [x] No
 
-**Justificación:**
+**Justification:**
 
-`synchronized` solo protege memoria dentro de una JVM. Cada instancia tiene su propia copia de `nextPosition`, `paused`, `pending`, etc. en su heap. Un lock en App A no tiene ningún efecto sobre lo que App B o App C están haciendo simultáneamente. Dos robots corriendo en instancias distintas podrían leer el mismo `nextPosition` de sus respectivas copias locales y asignar la misma posición de entrega, exactamente el mismo problema que teníamos entre threads, pero ahora entre procesos.
+`synchronized` only protects memory inside one JVM. Each instance has its own copy of `nextPosition`, `paused`, `pending`, etc. in its heap. A lock in App A has no effect on what App B or App C are doing at the same time. Two robots running on different instances could read the same `nextPosition` from their own local copies and assign the same delivery position. It is exactly the same problem we had between threads, but now between processes.
 
 ---
 
-## 14.2 Evolución arquitectónica
+## 14.2 Architectural evolution
 
-¿Qué alternativa consideraría para garantizar consistencia entre múltiples instancias?
+What alternative would we use to guarantee consistency between multiple instances?
 
-- [x] Transacción en base de datos
-- [x] Restricción / constraint en base de datos
-- [ ] Optimistic locking / versionado
-- [ ] Lock distribuido
-- [ ] Otra: `________________________`
+- [x] Database transaction
+- [x] Database constraint
+- [ ] Optimistic locking / versioning
+- [ ] Distributed lock
+- [ ] Other: `________________________`
 
-**Decisión propuesta:**
+**Proposed decision:**
 
-Mover el estado compartido (`nextPosition`, contadores, cola de paquetes) a una base de datos compartida y usar transacciones con constraints de unicidad.
+Move the shared state (`nextPosition`, counters, package queue) to a shared database and use transactions with uniqueness constraints.
 
-**Justificación:**
+**Justification:**
 
-Una base de datos con una constraint `UNIQUE` en la columna de posición garantiza que dos instancias no puedan insertar la misma posición, sin importar en qué JVM corran. Las transacciones garantizan que el read-increment-write de `nextPosition` sea atómico a nivel de base de datos. Esto traslada la garantía de consistencia a una capa que todas las instancias comparten, que es exactamente lo que `synchronized` no puede hacer entre JVMs.
+A database with a `UNIQUE` constraint on the position column guarantees that two instances cannot insert the same position, no matter which JVM they run on. Transactions guarantee that the read-increment-write of `nextPosition` is atomic at the database level. This moves the consistency guarantee to a layer that all instances share, which is exactly what `synchronized` cannot do across JVMs.
 
 ---
 
@@ -451,89 +449,89 @@ Una base de datos con una constraint `UNIQUE` en la columna de posición garanti
 
 ### Context
 
-En el simulador de almacén, varios robots (threads Java) comparten cuatro objetos: `PackageQueue`, `DeliveryRegistry`, `WarehouseStatistics` y `SimulationControl`. El código inicial no tiene ninguna protección sobre estos objetos, lo que genera condiciones de carrera: dos robots pueden tomar el mismo paquete, recibir la misma posición de entrega, perder incrementos de contador, o quemar CPU en active waiting. La tarea es corregir esos problemas con la mínima sincronización necesaria, sin eliminar la concurrencia ni usar un lock global.
+In the warehouse simulator, several robots (Java threads) share four objects: `PackageQueue`, `DeliveryRegistry`, `WarehouseStatistics` and `SimulationControl`. The original code had no protection on these objects, which caused race conditions: two robots could take the same package, get the same delivery position, lose counter increments, or burn CPU in active waiting. The goal was to fix those problems with the minimum necessary synchronization, without removing concurrency or using a global lock.
 
 ### Decision
 
-Usamos `synchronized` a nivel de método en cada clase por separado. En `PackageQueue`, `takeNext()` y `pendingCount()` se sincronizaron para que el check, la lectura y el remove sean una operación atómica. En `DeliveryRegistry`, `register()` y `snapshot()` se sincronizaron para que la lectura de `nextPosition`, el incremento y el `add` no puedan ser interrumpidos por otro robot. En `WarehouseStatistics`, los tres métodos se sincronizaron para que los dos campos se actualicen juntos. En `SimulationControl`, se reemplazó el busy-wait con `wait()`/`notifyAll()` para que los robots duerman sin consumir CPU. Cada clase usa su propio monitor (`this`), independiente de las demás.
+We used `synchronized` at method level in each class separately. In `PackageQueue`, `takeNext()` and `pendingCount()` were synchronized so the check, read and remove happen as one atomic operation. In `DeliveryRegistry`, `register()` and `snapshot()` were synchronized so the read of `nextPosition`, the increment and the `add` cannot be interrupted by another robot. In `WarehouseStatistics`, all three methods were synchronized so both fields update together. In `SimulationControl`, we replaced the busy-wait with `wait()`/`notifyAll()` so robots sleep without using CPU. Each class uses its own monitor (`this`), independent from the others.
 
 ### Alternatives considered
 
-1. Lock global compartido entre todas las clases: descartado porque bloquearía robots que operan sobre datos no relacionados, reduciendo el throughput innecesariamente.
-2. `AtomicInteger`/`AtomicLong` para los contadores: válido para un solo contador, pero `WarehouseStatistics` tiene dos campos que deben actualizarse juntos, y `DeliveryRegistry` necesita atomicidad entre tres pasos. Un `Atomic*` por variable no cubre esos casos.
+1. One global lock shared across all classes: rejected because it would block robots working on unrelated data, reducing throughput for no reason.
+2. `AtomicInteger`/`AtomicLong` for the counters: works for a single counter, but `WarehouseStatistics` has two fields that need to update together, and `DeliveryRegistry` needs atomicity across three steps. One `Atomic*` per variable does not cover those cases.
 
 ### Quality attributes affected
 
-Correctitud mejora: las invariantes de posiciones únicas y contadores consistentes están garantizadas. Performance tiene una leve reducción por la contención en regiones críticas, minimizada al usar un monitor por clase. Mantenibilidad mejora: cada clase encapsula su propia sincronización con regiones críticas explícitas y justificadas.
+Correctness improves: the invariants for unique positions and consistent counters are guaranteed. Performance has a small reduction due to contention in critical regions, minimized by using one monitor per class. Maintainability improves: each class encapsulates its own synchronization with clear and justified critical regions.
 
 ### Evidence
 
-`RaceConditionProbe` retorna 0/100 anomalías en las tres configuraciones requeridas (8/100, 16/250, 32/500). `mvn clean test` pasa con BUILD SUCCESS, 2/2 tests. No se observan `IndexOutOfBoundsException`, posiciones duplicadas ni contadores desincronizados después de los fixes.
+`RaceConditionProbe` returns 0/100 anomalies in all three required configurations (8/100, 16/250, 32/500). `mvn clean test` passes with BUILD SUCCESS, 2/2 tests. No `IndexOutOfBoundsException`, duplicate positions or out-of-sync counters after the fixes.
 
 ### Consequences
 
-Cada clase protege sus propios invariantes de forma independiente. No hay lock global, por lo que robots que operan sobre clases distintas no se bloquean entre sí. El comportamiento público de cada clase no cambió: mismas firmas, misma semántica. La correctitud ya no depende del scheduler del sistema operativo.
+Each class protects its own invariants independently. There is no global lock, so robots working on different classes do not block each other. The public behavior of each class did not change: same method signatures, same semantics. Correctness no longer depends on the OS scheduler.
 
 ### Risks
 
-Si en el futuro se agrega lógica que requiera atomicidad entre dos clases distintas, los monitores separados no serán suficientes y el diseño deberá revisarse. Si alguien agrega un método nuevo que toque los mismos campos sin pasar por los métodos sincronizados, la protección se rompe sin advertencia del compilador. En un escenario con múltiples instancias JVM detrás de un load balancer, `synchronized` no protege nada entre procesos separados.
+If logic is added in the future that needs atomicity across two different classes, the separate monitors will not be enough and the design will need to be revisited. If someone adds a new method that touches these fields without going through the synchronized methods, the protection breaks and the compiler will not warn about it. In a scenario with multiple JVM instances behind a load balancer, `synchronized` does not protect anything across separate processes.
 
 ---
 
-# 16. Cambios realizados
+# 16. Changes made
 
-| Archivo / Clase | Cambio realizado | Razón |
+| File / Class | Change | Reason |
 |---|---|---|
-| `PackageQueue.java` | `takeNext()` y `pendingCount()` marcados como `synchronized` | Eliminar el check-then-act race condition: el isEmpty+get+remove deben ser atómicos |
-| `DeliveryRegistry.java` | `register()` y `snapshot()` marcados como `synchronized`; incremento de `nextPosition` explícito | Eliminar el lost-update en `nextPosition` y garantizar posiciones únicas y consecutivas |
-| `WarehouseStatistics.java` | `recordProcessed()`, `processedParcels()` y `totalProcessingMillis()` marcados como `synchronized` | Garantizar que los dos campos se actualicen juntos y que las lecturas sean consistentes |
-| `SimulationControl.java` | Reemplazado busy-wait con `synchronized` + `wait()`/`notifyAll()` en los 4 métodos | Eliminar active waiting; los robots duermen sin consumir CPU y se despiertan coordinadamente |
-| `WarehouseMain.java` | Reemplazado `Thread.sleep(60)` por `simulation.awaitCompletion()` (que hace `join()` por cada robot) | Garantizar que el reporte final solo se imprime cuando todos los robots han terminado |
+| `PackageQueue.java` | `takeNext()` and `pendingCount()` marked as `synchronized` | Remove the check-then-act race condition: isEmpty+get+remove must be atomic |
+| `DeliveryRegistry.java` | `register()` and `snapshot()` marked as `synchronized`; explicit increment of `nextPosition` | Remove the lost-update on `nextPosition` and guarantee unique consecutive positions |
+| `WarehouseStatistics.java` | `recordProcessed()`, `processedParcels()` and `totalProcessingMillis()` marked as `synchronized` | Make sure both fields update together and reads are consistent |
+| `SimulationControl.java` | Replaced busy-wait with `synchronized` + `wait()`/`notifyAll()` on all 4 methods | Remove active waiting; robots sleep without using CPU and wake up in a coordinated way |
+| `WarehouseMain.java` | Replaced `Thread.sleep(60)` with `simulation.awaitCompletion()` (which calls `join()` per robot) | Make sure the final report only prints when all robots have actually finished |
 
 ---
 
-# 17. Pruebas ejecutadas
+# 17. Tests run
 
-| Prueba | Comando | Resultado |
+| Test | Command | Result |
 |---|---|---|
-| Compilación y tests | `mvn clean test` | BUILD SUCCESS — 2/2 tests passed |
-| Simulación estándar | `java -cp target/classes edu.eci.arsw.warehouse.app.WarehouseMain 12 100` | Reporte final correcto, 0 paquetes pendientes, contador == registry size |
+| Compile and tests | `mvn clean test` | BUILD SUCCESS — 2/2 tests passed |
+| Standard simulation | `java -cp target/classes edu.eci.arsw.warehouse.app.WarehouseMain 12 100` | Correct final report, 0 pending packages, counter == registry size |
 | RaceConditionProbe 8/100 | `java -cp target/classes edu.eci.arsw.warehouse.verification.RaceConditionProbe 100 8 100` | 0/100 anomalous runs |
 | RaceConditionProbe 16/250 | `java -cp target/classes edu.eci.arsw.warehouse.verification.RaceConditionProbe 100 16 250` | 0/100 anomalous runs |
 | RaceConditionProbe 32/500 | `java -cp target/classes edu.eci.arsw.warehouse.verification.RaceConditionProbe 100 32 500` | 0/100 anomalous runs |
-| Pause / Resume | `java -cp target/classes edu.eci.arsw.warehouse.app.PauseResumeDemo` | Pausa y reanuda correctamente; snapshot consistente durante la pausa |
+| Pause / Resume | `java -cp target/classes edu.eci.arsw.warehouse.app.PauseResumeDemo` | Pauses and resumes correctly; consistent snapshot while paused |
 
 ---
 
-# 18. Conclusiones
+# 18. Conclusions
 
-1. `Las condiciones de carrera no son visibles en el código fuente: el starter se veía razonable pero producía IndexOutOfBoundsException, posiciones duplicadas y contadores desincronizados porque operaciones de múltiples pasos no eran atómicas.`
-2. `synchronized a nivel de método por clase es el nivel de granularidad correcto para este problema: protege cada invariante sin bloquear operaciones no relacionadas entre clases distintas.`
-3. `wait()/notifyAll() es la única forma correcta de implementar pause/resume sin active waiting: el thread libera el monitor mientras duerme y se despierta exactamente cuando resume() lo indica, sin consumir CPU.`
-4. `join() es la única forma correcta de esperar la finalización de workers: Thread.sleep() solo garantiza que pasó tiempo, no que los threads terminaron, lo que produce reportes prematuros con datos incompletos.`
-5. `synchronized solo protege dentro de una JVM: en un escenario distribuido con múltiples instancias, la consistencia debe moverse a una capa compartida como una base de datos con transacciones y constraints, porque ningún mecanismo de memoria compartida puede cruzar procesos.`
-
----
-
-# 19. Checklist de entrega
-
-- [x] El proyecto compila con `mvn clean test`.
-- [x] El código utiliza Java 21.
-- [x] No se eliminó la concurrencia.
-- [x] No existe busy waiting en la solución final.
-- [x] El programa espera correctamente la finalización de todos los robots.
-- [x] Las regiones críticas están justificadas.
-- [x] Se preservan las invariantes definidas.
-- [x] El `RaceConditionProbe` final no presenta anomalías.
-- [x] Se documentó el análisis arquitectónico.
-- [x] Se incluyó el ADR.
-- [x] El repositorio contiene commits claros.
-- [x] Se incluyó la URL del repositorio y el commit final.
+1. Race conditions are not visible in the source code. The starter looked reasonable but produced IndexOutOfBoundsException, duplicate positions and out-of-sync counters because multi-step operations were not atomic.
+2. `synchronized` at method level per class is the right level of granularity for this problem. It protects each invariant without blocking unrelated operations in different classes.
+3. `wait()`/`notifyAll()` is the only correct way to implement pause/resume without active waiting. The thread releases the monitor while sleeping and wakes up exactly when `resume()` tells it to, without using CPU.
+4. `join()` is the only correct way to wait for workers to finish. `Thread.sleep()` only guarantees that time passed, not that the threads are done, which produces early reports with incomplete data.
+5. `synchronized` only protects inside one JVM. In a distributed scenario with multiple instances, consistency must move to a shared layer like a database with transactions and constraints, because no shared-memory mechanism can work across processes.
 
 ---
 
-## Nota
+# 19. Delivery checklist
 
-No se evalúa la cantidad de texto. Se evalúa la capacidad de demostrar:
+- [x] The project compiles with `mvn clean test`.
+- [x] The code uses Java 21.
+- [x] Concurrency was not removed.
+- [x] There is no busy waiting in the final solution.
+- [x] The program correctly waits for all robots to finish.
+- [x] Critical regions are justified.
+- [x] The defined invariants are preserved.
+- [x] The final `RaceConditionProbe` shows no anomalies.
+- [x] The architectural analysis is documented.
+- [x] The ADR is included.
+- [x] The repository has clear commits.
+- [x] The repository URL and final commit are included.
 
-> **problema → evidencia → invariante → región crítica → decisión → implementación → verificación → trade-off arquitectónico**
+---
+
+## Note
+
+The amount of text is not what is graded. What matters is showing:
+
+> **problem → evidence → invariant → critical region → decision → implementation → verification → architectural trade-off**
