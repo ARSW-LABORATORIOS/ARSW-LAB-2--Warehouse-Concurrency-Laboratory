@@ -14,7 +14,8 @@ public class DeliveryRegistry {
     private final List<DeliveryRecord> deliveries = new ArrayList<>();
 
     public synchronized void register(int robotId, int parcelId, long elapsedMillis) {
-        int assignedPosition = nextPosition++;
+        int assignedPosition = nextPosition;
+        nextPosition = nextPosition + 1;
         deliveries.add(new DeliveryRecord(assignedPosition, robotId, parcelId, elapsedMillis));
     }
 
