@@ -21,7 +21,7 @@
 `https://github.com/ARSW-LABORATORIOS/ARSW-LAB-2--Warehouse-Concurrency-Laboratory`
 
 **Final commit:**  
-`9a86263`
+`f0ff011`
 
 ---
 
