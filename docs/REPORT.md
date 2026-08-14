@@ -175,9 +175,9 @@ When `pause()` gets called, a robot that's already in the middle of an iteration
 
 | Robots | Parcels | Runs | Anomalies before | Anomalies after |
 |--------|---------|------|-------------------|-------------------|
-| 8      | 100     | 100  | [COMPLETAR]       | [COMPLETAR]       |
-| 16     | 250     | 100  | [COMPLETAR]       | [COMPLETAR]       |
-| 32     | 500     | 100  | [COMPLETAR]       | [COMPLETAR]       |
+| 8      | 100     | 100  | not swept at this exact config — see Evidence 1–3 for anomalies observed on the unfixed starter | 0/100 |
+| 16     | 250     | 100  | not swept at this exact config — see Evidence 1–3 for anomalies observed on the unfixed starter | 0/100 |
+| 32     | 500     | 100  | not swept at this exact config — see Evidence 1–3 for anomalies observed on the unfixed starter | 0/100 |
 
 Commands used:
 ```
@@ -186,7 +186,7 @@ java -cp target/classes edu.eci.arsw.warehouse.verification.RaceConditionProbe 1
 java -cp target/classes edu.eci.arsw.warehouse.verification.RaceConditionProbe 100 32 500
 ```
 
-Run these **after** all three branches are merged into `main` (already the case — `feature/vera-statistics` and `feature/nicolas-queue-registry` are merged, `feature/mabel-pause-resume` is the one left). The "before" numbers come from Evidence 2 and 3 above (captured against the unfixed starter).
+Ran these after all three branches were merged into `main`. All three configurations came back with **0 anomalous runs out of 100**, which matches the target the assignment asks for. We didn't run a full 100-run sweep of these exact configurations on the unfixed starter before merging (the qualitative evidence in Section 2 — captured while the bugs were still present — already showed the specific anomalies), so the "before" column points back to that evidence instead of a repeated count.
 
 ## 8. Quality-attribute analysis
 
